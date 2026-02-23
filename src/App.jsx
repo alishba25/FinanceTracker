@@ -27,7 +27,7 @@ import { getAuth, onAuthStateChanged, signInWithCustomToken, signInAnonymously, 
 import { getFirestore, collection, onSnapshot, addDoc, doc, deleteDoc } from 'firebase/firestore';
 
 // Environment variables fallback for local dev
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+const firebaseConfig = typeof _firebase_config !== 'undefined' ? JSON.parse(_firebase_config) : {
   apiKey: "AIzaSyAe5SszPqWm4eJ2tW5ZlxC7KJAur_-2OhY",
   authDomain: "financetracker-ef6ff.firebaseapp.com",
   projectId: "financetracker-ef6ff",
@@ -148,21 +148,52 @@ export default function App() {
   }), [transactions, selectedMonth, selectedYear]);
 
   const stats = useMemo(() => {
-    let income = 0, expense = 0, investment = 0;
+    let prevBalance = 0;
+    let income = 0;
+    let expense = 0;
+    let investment = 0;
     const breakdown = {};
-    filtered.forEach(t => {
-      if (t.type === 'income') income += t.amount;
-      else if (t.type === 'expense') {
-        expense += t.amount;
-        breakdown[t.category] = (breakdown[t.category] || 0) + t.amount;
+
+    transactions.forEach(t => {
+      const tDate = new Date(t.date);
+      const tMonth = tDate.getMonth();
+      const tYear = tDate.getFullYear();
+
+      // Calculate Previous Balance (strictly before selected month)
+      if (tYear < selectedYear || (tYear === selectedYear && tMonth < selectedMonth)) {
+        if (t.type === 'income') prevBalance += t.amount;
+        if (t.type === 'expense') prevBalance -= t.amount;
       }
-      else if (t.type === 'investment') investment += t.amount;
+
+      // Calculate Selected Month Stats
+      if (tMonth === selectedMonth && tYear === selectedYear) {
+        if (t.type === 'income') income += t.amount;
+        else if (t.type === 'expense') {
+          expense += t.amount;
+          breakdown[t.category] = (breakdown[t.category] || 0) + t.amount;
+        }
+        else if (t.type === 'investment') investment += t.amount;
+      }
     });
+
     const sortedCats = Object.entries(breakdown).map(([name, amount], i) => ({
       name, amount, color: CHART_COLORS[i % CHART_COLORS.length]
     })).sort((a, b) => b.amount - a.amount);
-    return { income, expense, investment, balance: income - expense - investment, sortedCats };
-  }, [filtered]);
+
+    const totalAvailable = prevBalance + income;
+    const endOfMonthBalance = totalAvailable - expense;
+
+    return { 
+      prevBalance,
+      income, 
+      expense, 
+      investment, 
+      totalAvailable,
+      endOfMonthBalance,
+      balance: income - expense - investment, 
+      sortedCats 
+    };
+  }, [transactions, selectedMonth, selectedYear]);
 
   const totalPortfolio = useMemo(() => transactions.filter(t => t.type === 'investment').reduce((a, c) => a + c.amount, 0), [transactions]);
 
@@ -276,7 +307,7 @@ function SidebarLink({ icon, label, active, onClick, isDarkMode }) {
 function DashboardView({ stats, lifetimeBalance, formatCurrency, isDarkMode }) {
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
         
         {/* LIFETIME BALANCE CARD */}
         <div className="bg-[#003049] p-8 rounded-[2.5rem] text-[#EAE2B7] shadow-xl relative overflow-hidden group border border-white/5 flex flex-col justify-between">
@@ -289,13 +320,38 @@ function DashboardView({ stats, lifetimeBalance, formatCurrency, isDarkMode }) {
             <h2 className="text-4xl font-black truncate tracking-tighter">{formatCurrency(lifetimeBalance)}</h2>
           </div>
           <div className="flex gap-4 mt-8 pt-6 border-t border-white/10 shrink-0">
-             <div className="flex-1 overflow-hidden"><p className="text-[9px] font-black text-emerald-400 uppercase">This Month In</p><p className="font-bold text-sm truncate">{formatCurrency(stats.income)}</p></div>
-             <div className="flex-1 overflow-hidden"><p className="text-[9px] font-black text-rose-400 uppercase">This Month Out</p><p className="font-bold text-sm truncate">{formatCurrency(stats.expense)}</p></div>
+             <div className="flex-1 overflow-hidden"><p className="text-[9px] font-black text-emerald-400 uppercase">This Month In</p><p className="font-bold text-sm truncate">+{formatCurrency(stats.income)}</p></div>
+             <div className="flex-1 overflow-hidden"><p className="text-[9px] font-black text-rose-400 uppercase">This Month Out</p><p className="font-bold text-sm truncate">-{formatCurrency(stats.expense)}</p></div>
           </div>
         </div>
 
-        <Card title="Selected Month Income" value={formatCurrency(stats.income)} color={isDarkMode ? COLORS.GOLD : COLORS.DEEP_BLUE} isDarkMode={isDarkMode} />
-        <Card title="Selected Month Expenses" value={formatCurrency(stats.expense)} color={COLORS.RED} isDarkMode={isDarkMode} />
+        {/* MONTHLY ACCOUNT SUMMARY TABLE */}
+        <div className="bg-[#FDFBF7] dark:bg-[#003049] p-6 sm:p-8 rounded-[2.5rem] shadow-sm border border-black/5 dark:border-white/5 lg:col-span-2 flex flex-col justify-center">
+          <h3 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-4" style={{color: isDarkMode ? COLORS.VANILLA : COLORS.DEEP_BLUE}}>Monthly Account Summary</h3>
+          
+          <div className="space-y-3 font-bold text-sm sm:text-base">
+             <div className="flex justify-between items-center pb-2 border-b border-black/5 dark:border-white/10">
+                <span className="opacity-70">Money left last month</span>
+                <span>{formatCurrency(stats.prevBalance)}</span>
+             </div>
+             <div className="flex justify-between items-center pb-2 border-b border-black/5 dark:border-white/10">
+                <span className="opacity-70">Money in this month</span>
+                <span className="text-[#003049] dark:text-[#FCBF49]">+{formatCurrency(stats.income)}</span>
+             </div>
+             <div className="flex justify-between items-center pb-2 border-b border-black/5 dark:border-white/10 bg-red-50 dark:bg-red-500/10 p-2 sm:p-3 rounded-xl -mx-2 sm:-mx-3">
+                <span className="text-red-500 dark:text-red-400">Expenses this month</span>
+                <span className="text-red-500 dark:text-red-400">-{formatCurrency(stats.expense)}</span>
+             </div>
+             <div className="flex justify-between items-center pb-2 border-b border-black/5 dark:border-white/10 pt-2">
+                <span className="opacity-70">Total Available</span>
+                <span className="text-lg sm:text-xl font-black">{formatCurrency(stats.totalAvailable)}</span>
+             </div>
+             <div className="flex justify-between items-center pt-2 bg-[#FCBF49]/20 dark:bg-[#FCBF49]/10 p-3 sm:p-4 rounded-xl -mx-2 sm:-mx-3">
+                <span className="opacity-90">Money left at month end</span>
+                <span className="text-xl sm:text-2xl font-black">{formatCurrency(stats.endOfMonthBalance)}</span>
+             </div>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
