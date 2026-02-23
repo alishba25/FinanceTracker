@@ -19,7 +19,9 @@ import {
   Trash2,
   Pencil,
   Loader2,
-  User
+  User,
+  Scale,
+  RotateCcw
 } from 'lucide-react';
 
 // --- FIREBASE IMPORTS & INIT ---
@@ -61,11 +63,18 @@ export default function App() {
   const [isAuthenticating, setIsAuthenticating] = useState(true);
   const [transactions, setTransactions] = useState([]);
   const [currentView, setCurrentView] = useState('dashboard');
+  
+  // Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState(null);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+
+  // Layout States
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [editingTransaction, setEditingTransaction] = useState(null);
   
   // Auth Form State
   const [email, setEmail] = useState('');
@@ -73,9 +82,9 @@ export default function App() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [authError, setAuthError] = useState('');
   
-  const currentDate = new Date();
-  const [selectedMonth, setSelectedMonth] = useState(currentDate.getMonth());
-  const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
+  // Filter States - Default to "All Time"
+  const [selectedMonth, setSelectedMonth] = useState('All');
+  const [selectedYear, setSelectedYear] = useState('All');
 
   // --- AUTH LISTENERS ---
   useEffect(() => {
@@ -133,6 +142,37 @@ export default function App() {
     setEditingTransaction(null);
   };
 
+  const handleAdjustBalance = async (newActualBalance) => {
+    const diff = newActualBalance - lifetimeBalance;
+    if (diff === 0) {
+      setIsAdjustModalOpen(false);
+      return;
+    }
+    
+    const type = diff > 0 ? 'income' : 'expense';
+    const txn = {
+      type,
+      amount: Math.abs(diff),
+      category: 'Adjustment',
+      date: new Date().toISOString().split('T')[0],
+      source: 'Manual Balance Tally'
+    };
+    
+    const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'transactions');
+    await addDoc(colRef, { ...txn, timestamp: Date.now() });
+    setIsAdjustModalOpen(false);
+  };
+
+  const handleResetData = async () => {
+    setIsDeletingAll(true);
+    const deletePromises = transactions.map(t => 
+      deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'transactions', t.id))
+    );
+    await Promise.all(deletePromises);
+    setIsDeletingAll(false);
+    setIsResetModalOpen(false);
+  };
+
   const handleEdit = (txn) => {
     setEditingTransaction(txn);
     setIsModalOpen(true);
@@ -155,10 +195,12 @@ export default function App() {
     return totalIncome - totalExpense;
   }, [transactions]);
 
-  // 2. Calculate MONTHLY stats (For the filtered views and charts)
+  // 2. Calculate PERIOD stats (For the filtered views and charts)
   const filtered = useMemo(() => transactions.filter(t => {
     const d = new Date(t.date);
-    return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+    const matchMonth = selectedMonth === 'All' || d.getMonth() === selectedMonth;
+    const matchYear = selectedYear === 'All' || d.getFullYear() === selectedYear;
+    return matchMonth && matchYear;
   }), [transactions, selectedMonth, selectedYear]);
 
   const stats = useMemo(() => {
@@ -173,14 +215,26 @@ export default function App() {
       const tMonth = tDate.getMonth();
       const tYear = tDate.getFullYear();
 
-      // Calculate Previous Balance (strictly before selected month)
-      if (tYear < selectedYear || (tYear === selectedYear && tMonth < selectedMonth)) {
+      // Calculate Previous Balance (strictly before selected period)
+      let isBefore = false;
+      if (selectedYear !== 'All') {
+        if (selectedMonth !== 'All') {
+          isBefore = tYear < selectedYear || (tYear === selectedYear && tMonth < selectedMonth);
+        } else {
+          isBefore = tYear < selectedYear;
+        }
+      }
+
+      if (isBefore) {
         if (t.type === 'income') prevBalance += t.amount;
         if (t.type === 'expense') prevBalance -= t.amount;
       }
 
-      // Calculate Selected Month Stats
-      if (tMonth === selectedMonth && tYear === selectedYear) {
+      // Calculate Selected Period Stats
+      const matchMonth = selectedMonth === 'All' || tMonth === selectedMonth;
+      const matchYear = selectedYear === 'All' || tYear === selectedYear;
+
+      if (matchMonth && matchYear) {
         if (t.type === 'income') income += t.amount;
         else if (t.type === 'expense') {
           expense += t.amount;
@@ -195,7 +249,7 @@ export default function App() {
     })).sort((a, b) => b.amount - a.amount);
 
     const totalAvailable = prevBalance + income;
-    const endOfMonthBalance = totalAvailable - expense;
+    const endOfPeriodBalance = totalAvailable - expense;
 
     return { 
       prevBalance,
@@ -203,13 +257,19 @@ export default function App() {
       expense, 
       investment, 
       totalAvailable,
-      endOfMonthBalance,
+      endOfPeriodBalance,
       balance: income - expense - investment, 
       sortedCats 
     };
   }, [transactions, selectedMonth, selectedYear]);
 
   const totalPortfolio = useMemo(() => transactions.filter(t => t.type === 'investment').reduce((a, c) => a + c.amount, 0), [transactions]);
+
+  const availableYears = useMemo(() => {
+    const years = new Set(transactions.map(t => new Date(t.date).getFullYear()));
+    years.add(new Date().getFullYear());
+    return Array.from(years).sort((a, b) => b - a);
+  }, [transactions]);
 
   const formatCurrency = (amt) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amt);
 
@@ -246,20 +306,20 @@ export default function App() {
           <div className="fixed inset-0 bg-black/50 z-30 md:hidden backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)}></div>
         )}
 
-        {/* SIDEBAR */}
-        <aside className={`fixed md:relative z-40 h-full flex flex-col bg-[#FDFBF7] dark:bg-[#003049] border-r border-black/5 dark:border-white/5 transition-all duration-300 shrink-0 
-          ${isMobileMenuOpen ? 'translate-x-0 w-72 p-6 shadow-2xl md:shadow-none' : '-translate-x-full w-72 p-6'} 
-          md:translate-x-0 ${isSidebarOpen ? 'md:w-72 md:p-6' : 'md:w-0 md:p-0 md:opacity-0 md:border-none'}`}>
+        {/* SIDEBAR (FIXED COLLAPSE LOGIC) */}
+        <aside className={`fixed md:relative z-40 h-full bg-[#FDFBF7] dark:bg-[#003049] border-r border-black/5 dark:border-white/5 transition-all duration-300 shrink-0 overflow-hidden
+          ${isMobileMenuOpen ? 'translate-x-0 w-72 shadow-2xl md:shadow-none' : '-translate-x-full w-72 md:translate-x-0'} 
+          ${isSidebarOpen ? 'md:w-72' : 'md:w-0 md:border-none'}`}>
           
-          <div className="w-60 flex flex-col h-full">
+          <div className="w-72 p-6 flex flex-col h-full">
             <div className="flex items-center gap-3 mb-10">
               <div className="bg-[#003049] dark:bg-[#FCBF49] p-2 rounded-lg text-white dark:text-[#003049] shadow-sm shrink-0"><Wallet size={24}/></div>
               <h1 className="text-2xl font-black tracking-tight truncate uppercase">FinTrack</h1>
             </div>
-            <nav className="flex-1 space-y-2 overflow-y-auto pr-2 custom-scrollbar -mr-2">
+            <nav className="flex-1 space-y-2 overflow-y-auto pr-2 custom-scrollbar">
               <SidebarLink icon={<LayoutDashboard size={20}/>} label="Dashboard" active={currentView==='dashboard'} onClick={() => {setCurrentView('dashboard'); setIsMobileMenuOpen(false);}} isDarkMode={isDarkMode} />
-              <SidebarLink icon={<Banknote size={20}/>} label="Income History" active={currentView==='income'} onClick={() => {setCurrentView('income'); setIsMobileMenuOpen(false);}} isDarkMode={isDarkMode} />
-              <SidebarLink icon={<ShoppingBag size={20}/>} label="Expense History" active={currentView==='expenses'} onClick={() => {setCurrentView('expenses'); setIsMobileMenuOpen(false);}} isDarkMode={isDarkMode} />
+              <SidebarLink icon={<Banknote size={20}/>} label="Income Logs" active={currentView==='income'} onClick={() => {setCurrentView('income'); setIsMobileMenuOpen(false);}} isDarkMode={isDarkMode} />
+              <SidebarLink icon={<ShoppingBag size={20}/>} label="Expense Logs" active={currentView==='expenses'} onClick={() => {setCurrentView('expenses'); setIsMobileMenuOpen(false);}} isDarkMode={isDarkMode} />
               <SidebarLink icon={<TrendingUp size={20}/>} label="Investments" active={currentView==='investments'} onClick={() => {setCurrentView('investments'); setIsMobileMenuOpen(false);}} isDarkMode={isDarkMode} />
               <SidebarLink icon={<User size={20}/>} label="My Profile" active={currentView==='profile'} onClick={() => {setCurrentView('profile'); setIsMobileMenuOpen(false);}} isDarkMode={isDarkMode} />
             </nav>
@@ -286,11 +346,13 @@ export default function App() {
                 {isDarkMode ? <Sun size={20}/> : <Moon size={20}/>}
               </button>
               <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-xl shrink-0">
-                <select className="bg-transparent text-sm font-bold p-1.5 outline-none cursor-pointer" value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))}>
+                <select className="bg-transparent text-sm font-bold p-1.5 outline-none cursor-pointer" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value === 'All' ? 'All' : Number(e.target.value))}>
+                  <option value="All" className="bg-white dark:bg-[#003049]">All Months</option>
                   {["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map((m, i) => <option key={i} value={i} className="bg-white dark:bg-[#003049]">{m}</option>)}
                 </select>
-                <select className="bg-transparent text-sm font-bold p-1.5 outline-none cursor-pointer" value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))}>
-                  {[2024, 2025, 2026].map(y => <option key={y} value={y} className="bg-white dark:bg-[#003049]">{y}</option>)}
+                <select className="bg-transparent text-sm font-bold p-1.5 outline-none cursor-pointer" value={selectedYear} onChange={e => setSelectedYear(e.target.value === 'All' ? 'All' : Number(e.target.value))}>
+                  <option value="All" className="bg-white dark:bg-[#003049]">All Years</option>
+                  {availableYears.map(y => <option key={y} value={y} className="bg-white dark:bg-[#003049]">{y}</option>)}
                 </select>
               </div>
               <button onClick={() => {setEditingTransaction(null); setIsModalOpen(true);}} className="bg-[#003049] dark:bg-[#FCBF49] text-white dark:text-[#003049] px-4 py-2.5 rounded-xl font-black shadow-lg flex items-center gap-2 active:scale-95 transition-all text-sm shrink-0">
@@ -301,16 +363,19 @@ export default function App() {
 
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10 scroll-smooth">
             <div className="max-w-6xl mx-auto pb-10">
-              {currentView === 'dashboard' && <DashboardView stats={stats} lifetimeBalance={lifetimeBalance} formatCurrency={formatCurrency} isDarkMode={isDarkMode} />}
+              {currentView === 'dashboard' && <DashboardView stats={stats} lifetimeBalance={lifetimeBalance} selectedMonth={selectedMonth} selectedYear={selectedYear} formatCurrency={formatCurrency} isDarkMode={isDarkMode} onAdjustClick={() => setIsAdjustModalOpen(true)} />}
               {currentView === 'income' && <ListView data={filtered.filter(t => t.type === 'income')} formatCurrency={formatCurrency} onEdit={handleEdit} onDelete={handleDelete} title="Income Logs" color={isDarkMode ? COLORS.GOLD : COLORS.DEEP_BLUE} isDarkMode={isDarkMode} />}
               {currentView === 'expenses' && <ListView data={filtered.filter(t => t.type === 'expense')} formatCurrency={formatCurrency} onEdit={handleEdit} onDelete={handleDelete} title="Expense Logs" color={COLORS.RED} isDarkMode={isDarkMode} />}
-              {currentView === 'investments' && <InvestmentsView transactions={transactions} formatCurrency={formatCurrency} total={totalPortfolio} onEdit={handleEdit} onDelete={handleDelete} isDarkMode={isDarkMode} />}
-              {currentView === 'profile' && <ProfileView user={user} transactions={transactions} formatCurrency={formatCurrency} isDarkMode={isDarkMode} />}
+              {currentView === 'investments' && <InvestmentsView transactions={filtered} formatCurrency={formatCurrency} total={totalPortfolio} onEdit={handleEdit} onDelete={handleDelete} isDarkMode={isDarkMode} />}
+              {currentView === 'profile' && <ProfileView user={user} transactions={transactions} formatCurrency={formatCurrency} isDarkMode={isDarkMode} onResetClick={() => setIsResetModalOpen(true)} />}
             </div>
           </div>
         </main>
 
+        {/* MODALS */}
         {isModalOpen && <TransactionModal onClose={() => {setIsModalOpen(false); setEditingTransaction(null);}} onSave={handleSaveTransaction} isDarkMode={isDarkMode} initialData={editingTransaction} />}
+        {isAdjustModalOpen && <AdjustBalanceModal onClose={() => setIsAdjustModalOpen(false)} onSave={handleAdjustBalance} currentBalance={lifetimeBalance} isDarkMode={isDarkMode} />}
+        {isResetModalOpen && <ConfirmResetModal onClose={() => setIsResetModalOpen(false)} onConfirm={handleResetData} isDarkMode={isDarkMode} isDeleting={isDeletingAll} />}
       </div>
     </div>
   );
@@ -333,7 +398,9 @@ function SidebarLink({ icon, label, active, onClick, isDarkMode }) {
   );
 }
 
-function DashboardView({ stats, lifetimeBalance, formatCurrency, isDarkMode }) {
+function DashboardView({ stats, lifetimeBalance, selectedMonth, selectedYear, formatCurrency, isDarkMode, onAdjustClick }) {
+  const isAllTime = selectedMonth === 'All' && selectedYear === 'All';
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
@@ -344,40 +411,50 @@ function DashboardView({ stats, lifetimeBalance, formatCurrency, isDarkMode }) {
           <div>
             <div className="flex justify-between items-start mb-1">
               <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Total Available Balance</p>
-              <span className="bg-white/10 px-2 py-1 rounded text-[8px] font-black uppercase tracking-widest">All-Time</span>
+              <button onClick={onAdjustClick} className="bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest transition-colors z-10 relative">
+                <Scale size={12}/> Tally
+              </button>
             </div>
-            <h2 className="text-4xl font-black truncate tracking-tighter">{formatCurrency(lifetimeBalance)}</h2>
+            <h2 className="text-4xl font-black truncate tracking-tighter mt-1">{formatCurrency(lifetimeBalance)}</h2>
           </div>
           <div className="flex gap-4 mt-8 pt-6 border-t border-white/10 shrink-0">
-             <div className="flex-1 overflow-hidden"><p className="text-[9px] font-black text-emerald-400 uppercase">This Month In</p><p className="font-bold text-sm truncate">+{formatCurrency(stats.income)}</p></div>
-             <div className="flex-1 overflow-hidden"><p className="text-[9px] font-black text-rose-400 uppercase">This Month Out</p><p className="font-bold text-sm truncate">-{formatCurrency(stats.expense)}</p></div>
+             <div className="flex-1 overflow-hidden">
+                <p className="text-[9px] font-black text-emerald-400 uppercase">{isAllTime ? 'All Time In' : 'Period In'}</p>
+                <p className="font-bold text-sm truncate">+{formatCurrency(stats.income)}</p>
+             </div>
+             <div className="flex-1 overflow-hidden">
+                <p className="text-[9px] font-black text-rose-400 uppercase">{isAllTime ? 'All Time Out' : 'Period Out'}</p>
+                <p className="font-bold text-sm truncate">-{formatCurrency(stats.expense)}</p>
+             </div>
           </div>
         </div>
 
-        {/* MONTHLY ACCOUNT SUMMARY TABLE */}
+        {/* ACCOUNT SUMMARY TABLE */}
         <div className="bg-[#FDFBF7] dark:bg-[#003049] p-6 sm:p-8 rounded-[2.5rem] shadow-sm border border-black/5 dark:border-white/5 lg:col-span-2 flex flex-col justify-center">
-          <h3 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-4" style={{color: isDarkMode ? COLORS.VANILLA : COLORS.DEEP_BLUE}}>Monthly Account Summary</h3>
+          <h3 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-4" style={{color: isDarkMode ? COLORS.VANILLA : COLORS.DEEP_BLUE}}>
+            {isAllTime ? 'All-Time Account Summary' : 'Period Account Summary'}
+          </h3>
           
           <div className="space-y-3 font-bold text-sm sm:text-base">
              <div className="flex justify-between items-center pb-2 border-b border-black/5 dark:border-white/10">
-                <span className="opacity-70">Money left last month</span>
+                <span className="opacity-70">{isAllTime ? 'Starting Ledger Balance' : 'Money left before period'}</span>
                 <span>{formatCurrency(stats.prevBalance)}</span>
              </div>
              <div className="flex justify-between items-center pb-2 border-b border-black/5 dark:border-white/10">
-                <span className="opacity-70">Money in this month</span>
+                <span className="opacity-70">Money in</span>
                 <span className="text-[#003049] dark:text-[#FCBF49]">+{formatCurrency(stats.income)}</span>
              </div>
              <div className="flex justify-between items-center pb-2 border-b border-black/5 dark:border-white/10 bg-red-50 dark:bg-red-500/10 p-2 sm:p-3 rounded-xl -mx-2 sm:-mx-3">
-                <span className="text-red-500 dark:text-red-400">Expenses this month</span>
+                <span className="text-red-500 dark:text-red-400">Expenses out</span>
                 <span className="text-red-500 dark:text-red-400">-{formatCurrency(stats.expense)}</span>
              </div>
              <div className="flex justify-between items-center pb-2 border-b border-black/5 dark:border-white/10 pt-2">
-                <span className="opacity-70">Total Available</span>
+                <span className="opacity-70">Calculated Available</span>
                 <span className="text-lg sm:text-xl font-black">{formatCurrency(stats.totalAvailable)}</span>
              </div>
              <div className="flex justify-between items-center pt-2 bg-[#FCBF49]/20 dark:bg-[#FCBF49]/10 p-3 sm:p-4 rounded-xl -mx-2 sm:-mx-3">
-                <span className="opacity-90">Money left at month end</span>
-                <span className="text-xl sm:text-2xl font-black">{formatCurrency(stats.endOfMonthBalance)}</span>
+                <span className="opacity-90">Money left at end of period</span>
+                <span className="text-xl sm:text-2xl font-black">{formatCurrency(stats.endOfPeriodBalance)}</span>
              </div>
           </div>
         </div>
@@ -386,7 +463,7 @@ function DashboardView({ stats, lifetimeBalance, formatCurrency, isDarkMode }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
         <div className="bg-[#FDFBF7] dark:bg-[#003049] p-8 rounded-[2.5rem] shadow-sm border border-black/5 dark:border-white/5 flex flex-col">
           <h3 className="text-sm font-black uppercase tracking-widest mb-8 flex items-center gap-2">
-            <Activity size={18} className="text-[#F77F00]"/> Monthly Cash Flow
+            <Activity size={18} className="text-[#F77F00]"/> {isAllTime ? 'All-Time Cash Flow' : 'Period Cash Flow'}
           </h3>
           <div className="space-y-10 py-4 flex-1 flex flex-col justify-center">
             <ProgressBar label="Total Income" value={stats.income} max={Math.max(stats.income, stats.expense)} color={isDarkMode ? COLORS.GOLD : COLORS.DEEP_BLUE} formatCurrency={formatCurrency} />
@@ -397,7 +474,7 @@ function DashboardView({ stats, lifetimeBalance, formatCurrency, isDarkMode }) {
         <div className="bg-[#FDFBF7] dark:bg-[#003049] p-8 rounded-[2.5rem] shadow-sm border border-black/5 dark:border-white/5 flex flex-col min-h-[350px]">
           <h3 className="text-sm font-black uppercase tracking-widest mb-8">Category Breakdown</h3>
           {stats.sortedCats.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-center opacity-40 font-bold italic">No spending logged for this month</div>
+            <div className="flex-1 flex items-center justify-center text-center opacity-40 font-bold italic">No spending logged for this selection</div>
           ) : (
             <div className="flex flex-col sm:flex-row items-center gap-8 flex-1">
               <DonutChart categories={stats.sortedCats} total={stats.expense} isDarkMode={isDarkMode} />
@@ -478,7 +555,7 @@ function ListView({ data, formatCurrency, onEdit, onDelete, title, color, isDark
               <div className="text-left truncate">
                 <p className="font-black text-sm truncate">{item.source}</p>
                 <p className="text-[10px] font-bold opacity-40 uppercase mt-1 tracking-tight">
-                  {new Date(item.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} • {item.category}
+                  {new Date(item.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} • {item.category}
                 </p>
               </div>
             </div>
@@ -525,13 +602,13 @@ function InvestmentsView({ transactions, formatCurrency, total, onEdit, onDelete
             {Object.keys(grouped).length === 0 && <p className="m-auto opacity-30 font-black italic uppercase text-xs">No active investments</p>}
           </div>
         </div>
-        <ListView data={items} formatCurrency={formatCurrency} onEdit={onEdit} onDelete={onDelete} title="Recent Additions" color={COLORS.ORANGE} isDarkMode={isDarkMode} />
+        <ListView data={items} formatCurrency={formatCurrency} onEdit={onEdit} onDelete={onDelete} title="Additions in Period" color={COLORS.ORANGE} isDarkMode={isDarkMode} />
       </div>
     </div>
   );
 }
 
-function ProfileView({ user, transactions, formatCurrency, isDarkMode }) {
+function ProfileView({ user, transactions, formatCurrency, isDarkMode, onResetClick }) {
   const stats = useMemo(() => {
     let inc = 0, exp = 0, inv = 0;
     transactions.forEach(t => {
@@ -544,18 +621,26 @@ function ProfileView({ user, transactions, formatCurrency, isDarkMode }) {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="bg-[#003049] p-10 sm:p-14 rounded-[3.5rem] text-[#EAE2B7] flex flex-col md:flex-row items-center gap-10 shadow-xl border border-white/5">
-        <div className="w-40 h-40 rounded-full bg-white/10 flex items-center justify-center border-4 border-white/10 shadow-inner shrink-0 overflow-hidden">
-          <User size={80} className="opacity-40"/>
+      <div className="bg-[#003049] p-10 sm:p-14 rounded-[3.5rem] text-[#EAE2B7] flex flex-col md:flex-row items-center justify-between gap-10 shadow-xl border border-white/5">
+        <div className="flex flex-col md:flex-row items-center gap-10">
+          <div className="w-40 h-40 rounded-full bg-white/10 flex items-center justify-center border-4 border-white/10 shadow-inner shrink-0 overflow-hidden">
+            <User size={80} className="opacity-40"/>
+          </div>
+          <div className="text-center md:text-left flex-1 overflow-hidden">
+            <h2 className="text-4xl sm:text-5xl font-black mb-4 truncate tracking-tighter">
+              {user?.isAnonymous ? "Guest Account" : (user?.email?.split('@')[0] || "Financial Pro")}
+            </h2>
+            <p className="font-bold opacity-60 tracking-wider mb-6 truncate">{user?.email || "Anonymous Local Data"}</p>
+            <span className="px-5 py-2 bg-white/10 rounded-full text-[9px] font-black uppercase tracking-widest border border-white/10 shadow-sm inline-block">UID: {user?.uid.slice(0,16)}...</span>
+          </div>
         </div>
-        <div className="text-center md:text-left flex-1 overflow-hidden">
-          <h2 className="text-4xl sm:text-5xl font-black mb-4 truncate tracking-tighter">
-            {user?.isAnonymous ? "Guest Account" : (user?.email?.split('@')[0] || "Financial Pro")}
-          </h2>
-          <p className="font-bold opacity-60 tracking-wider mb-6 truncate">{user?.email || "Anonymous Local Data"}</p>
-          <span className="px-5 py-2 bg-white/10 rounded-full text-[9px] font-black uppercase tracking-widest border border-white/10 shadow-sm inline-block">UID: {user?.uid.slice(0,16)}...</span>
-        </div>
+        
+        {/* FACTORY RESET BUTTON */}
+        <button onClick={onResetClick} className="flex items-center gap-2 px-6 py-4 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs transition-colors shrink-0 shadow-lg">
+          <RotateCcw size={16} /> Reset All Data
+        </button>
       </div>
+      
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
         <Card title="Lifetime Surplus" value={formatCurrency(stats.net)} color={isDarkMode ? COLORS.GOLD : COLORS.DEEP_BLUE} isDarkMode={isDarkMode} />
         <Card title="Total Assets" value={formatCurrency(stats.inv)} color={COLORS.ORANGE} isDarkMode={isDarkMode} />
@@ -564,6 +649,8 @@ function ProfileView({ user, transactions, formatCurrency, isDarkMode }) {
     </div>
   );
 }
+
+// --- MODALS ---
 
 function TransactionModal({ onClose, onSave, isDarkMode, initialData }) {
   const [type, setType] = useState(initialData?.type || 'expense');
@@ -574,8 +661,8 @@ function TransactionModal({ onClose, onSave, isDarkMode, initialData }) {
   const [loading, setLoading] = useState(false);
 
   const categories = {
-    expense: ['Food & Dining', 'Transportation', 'Shopping', 'Entertainment', 'Bills & Utilities', 'Groceries', 'Health', 'Other'],
-    income: ['Salary', 'Freelance', 'Dividends', 'Refunds', 'Gift', 'Other'],
+    expense: ['Food & Dining', 'Transportation', 'Shopping', 'Entertainment', 'Bills & Utilities', 'Groceries', 'Health', 'Adjustment', 'Other'],
+    income: ['Salary', 'Freelance', 'Dividends', 'Refunds', 'Gift', 'Adjustment', 'Other'],
     investment: ['Mutual Funds', 'Stocks', 'Fixed Deposit', 'Crypto', 'Real Estate', 'Other']
   };
 
@@ -601,7 +688,7 @@ function TransactionModal({ onClose, onSave, isDarkMode, initialData }) {
         <form onSubmit={submit} className="p-6 sm:p-8 space-y-6 sm:space-y-8 overflow-y-auto">
           <div className="flex bg-black/5 dark:bg-black/20 p-2 rounded-[2rem] shrink-0">
             {['expense', 'income', 'investment'].map(t => (
-              <button key={t} type="button" onClick={() => {setType(t); setCategory('')}} className={`flex-1 py-3 sm:py-4 text-[10px] font-black uppercase tracking-widest rounded-2xl capitalize transition-all ${type === t ? (isDarkMode ? 'bg-[#FCBF49] text-[#003049]' : 'bg-[#003049] text-white') + ' shadow-lg' : 'opacity-40 hover:opacity-100'}`}>{t}</button>
+              <button key={t} type="button" onClick={() => {setType(t); setCategory('');}} className={`flex-1 py-3 sm:py-4 text-[10px] font-black uppercase tracking-widest rounded-2xl capitalize transition-all ${type === t ? (isDarkMode ? 'bg-[#FCBF49] text-[#003049]' : 'bg-[#003049] text-white') + ' shadow-lg' : 'opacity-40 hover:opacity-100'}`}>{t}</button>
             ))}
           </div>
 
@@ -635,6 +722,55 @@ function TransactionModal({ onClose, onSave, isDarkMode, initialData }) {
             {loading ? <Loader2 className="animate-spin mx-auto" size={32}/> : (initialData ? "UPDATE ENTRY" : "SAVE ENTRY")}
           </button>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function AdjustBalanceModal({ onClose, onSave, currentBalance, isDarkMode }) {
+  const [actualBalance, setActualBalance] = useState('');
+  
+  const submit = (e) => {
+    e.preventDefault();
+    if (!actualBalance) return;
+    onSave(parseFloat(actualBalance));
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+      <div className="bg-[#FDFBF7] dark:bg-[#003049] rounded-[2.5rem] shadow-2xl w-full max-w-sm overflow-hidden border border-white/10">
+        <div className="p-8 border-b border-black/5 dark:border-white/5 flex justify-between items-center">
+          <h2 className="text-2xl font-black tracking-tighter">Tally Balance</h2>
+          <button type="button" onClick={onClose} className="p-2 hover:bg-black/5 rounded-full"><X size={20} className="opacity-40"/></button>
+        </div>
+        <form onSubmit={submit} className="p-8 space-y-6 text-[#003049] dark:text-[#EAE2B7]">
+          <p className="text-sm font-bold opacity-70">App calculated balance is <span className="text-[#F77F00]">{currentBalance}</span>. Enter your actual bank balance below to auto-adjust your ledger.</p>
+          <div className="relative border-b-4 border-black/10 dark:border-white/10 focus-within:border-[#FCBF49] transition-all pb-2">
+              <span className="absolute left-0 top-1 text-2xl font-black opacity-20">₹</span>
+              <input type="number" required placeholder="0.00" value={actualBalance} onChange={e => setActualBalance(e.target.value)} className="w-full pl-8 py-1 text-4xl font-black bg-transparent outline-none placeholder:opacity-10 tracking-tighter text-[#003049] dark:text-[#EAE2B7]" />
+          </div>
+          <button type="submit" className="w-full bg-[#003049] dark:bg-[#FCBF49] text-white dark:text-[#003049] py-4 rounded-2xl font-black text-lg shadow-xl active:scale-[0.98] transition-all mt-4">Adjust Now</button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmResetModal({ onClose, onConfirm, isDarkMode, isDeleting }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-300 text-[#003049] dark:text-[#EAE2B7]">
+      <div className="bg-[#FDFBF7] dark:bg-[#001D2C] rounded-[2.5rem] shadow-2xl w-full max-w-sm overflow-hidden border border-red-500/30 p-8 text-center">
+        <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Trash2 size={40} className="text-red-500"/>
+        </div>
+        <h2 className="text-3xl font-black tracking-tighter mb-2">Factory Reset</h2>
+        <p className="text-sm font-bold opacity-70 mb-8">This will permanently delete all your transactions. This action cannot be undone.</p>
+        <div className="flex gap-4">
+          <button onClick={onClose} disabled={isDeleting} className="flex-1 py-4 rounded-2xl font-black bg-black/5 dark:bg-white/5 hover:bg-black/10 transition-colors disabled:opacity-50">Cancel</button>
+          <button onClick={onConfirm} disabled={isDeleting} className="flex-1 py-4 rounded-2xl font-black bg-red-500 text-white shadow-xl shadow-red-500/20 active:scale-[0.98] transition-all disabled:opacity-50">
+            {isDeleting ? <Loader2 className="animate-spin mx-auto" /> : "Delete All"}
+          </button>
+        </div>
       </div>
     </div>
   );
