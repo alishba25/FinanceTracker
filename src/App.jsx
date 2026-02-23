@@ -130,24 +130,24 @@ export default function App() {
 
   // --- ANALYTICS ---
   
-  // 1. LIFETIME STATS (For overall bank balance)
-  const lifetimeStats = useMemo(() => {
-    let income = 0, expense = 0, investment = 0;
+  // 1. Calculate LIFETIME stats (All Months - For the main Bank Balance)
+  const lifetimeBalance = useMemo(() => {
+    let totalIncome = 0;
+    let totalExpense = 0;
     transactions.forEach(t => {
-      if (t.type === 'income') income += t.amount;
-      else if (t.type === 'expense') expense += t.amount;
-      else if (t.type === 'investment') investment += t.amount;
+      if (t.type === 'income') totalIncome += t.amount;
+      if (t.type === 'expense') totalExpense += t.amount;
     });
-    return { income, expense, investment, balance: income - expense - investment };
+    return totalIncome - totalExpense;
   }, [transactions]);
 
-  // 2. MONTHLY STATS (For specific month breakdown)
+  // 2. Calculate MONTHLY stats (For the filtered views and charts)
   const filtered = useMemo(() => transactions.filter(t => {
     const d = new Date(t.date);
     return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
   }), [transactions, selectedMonth, selectedYear]);
 
-  const monthlyStats = useMemo(() => {
+  const stats = useMemo(() => {
     let income = 0, expense = 0, investment = 0;
     const breakdown = {};
     filtered.forEach(t => {
@@ -163,6 +163,8 @@ export default function App() {
     })).sort((a, b) => b.amount - a.amount);
     return { income, expense, investment, balance: income - expense - investment, sortedCats };
   }, [filtered]);
+
+  const totalPortfolio = useMemo(() => transactions.filter(t => t.type === 'investment').reduce((a, c) => a + c.amount, 0), [transactions]);
 
   const formatCurrency = (amt) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amt);
 
@@ -239,11 +241,11 @@ export default function App() {
 
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10 scroll-smooth">
             <div className="max-w-6xl mx-auto pb-10">
-              {currentView === 'dashboard' && <DashboardView monthlyStats={monthlyStats} lifetimeStats={lifetimeStats} formatCurrency={formatCurrency} isDarkMode={isDarkMode} />}
+              {currentView === 'dashboard' && <DashboardView stats={stats} lifetimeBalance={lifetimeBalance} formatCurrency={formatCurrency} isDarkMode={isDarkMode} />}
               {currentView === 'income' && <ListView data={filtered.filter(t => t.type === 'income')} formatCurrency={formatCurrency} onDelete={handleDelete} title="Income Logs" color={isDarkMode ? COLORS.GOLD : COLORS.DEEP_BLUE} isDarkMode={isDarkMode} />}
               {currentView === 'expenses' && <ListView data={filtered.filter(t => t.type === 'expense')} formatCurrency={formatCurrency} onDelete={handleDelete} title="Expense Logs" color={COLORS.RED} isDarkMode={isDarkMode} />}
-              {currentView === 'investments' && <InvestmentsView transactions={transactions} formatCurrency={formatCurrency} total={lifetimeStats.investment} onDelete={handleDelete} isDarkMode={isDarkMode} />}
-              {currentView === 'profile' && <ProfileView user={user} lifetimeStats={lifetimeStats} transactionsCount={transactions.length} formatCurrency={formatCurrency} isDarkMode={isDarkMode} />}
+              {currentView === 'investments' && <InvestmentsView transactions={transactions} formatCurrency={formatCurrency} total={totalPortfolio} onDelete={handleDelete} isDarkMode={isDarkMode} />}
+              {currentView === 'profile' && <ProfileView user={user} transactions={transactions} formatCurrency={formatCurrency} isDarkMode={isDarkMode} />}
             </div>
           </div>
         </main>
@@ -271,29 +273,29 @@ function SidebarLink({ icon, label, active, onClick, isDarkMode }) {
   );
 }
 
-function DashboardView({ monthlyStats, lifetimeStats, formatCurrency, isDarkMode }) {
+function DashboardView({ stats, lifetimeBalance, formatCurrency, isDarkMode }) {
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
+        
+        {/* LIFETIME BALANCE CARD */}
         <div className="bg-[#003049] p-8 rounded-[2.5rem] text-[#EAE2B7] shadow-xl relative overflow-hidden group border border-white/5 flex flex-col justify-between">
           <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-10 -mt-10 blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
           <div>
-            <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1 text-[#FCBF49]">Total Available Balance</p>
-            <h2 className="text-4xl font-black truncate tracking-tighter">{formatCurrency(lifetimeStats.balance)}</h2>
+            <div className="flex justify-between items-start mb-1">
+              <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Total Available Balance</p>
+              <span className="bg-white/10 px-2 py-1 rounded text-[8px] font-black uppercase tracking-widest">All-Time</span>
+            </div>
+            <h2 className="text-4xl font-black truncate tracking-tighter">{formatCurrency(lifetimeBalance)}</h2>
           </div>
           <div className="flex gap-4 mt-8 pt-6 border-t border-white/10 shrink-0">
-             <div className="flex-1 overflow-hidden">
-               <p className="text-[9px] font-black text-emerald-400 uppercase">All-Time In</p>
-               <p className="font-bold text-sm truncate">{formatCurrency(lifetimeStats.income)}</p>
-             </div>
-             <div className="flex-1 overflow-hidden">
-               <p className="text-[9px] font-black text-rose-400 uppercase">All-Time Out</p>
-               <p className="font-bold text-sm truncate">{formatCurrency(lifetimeStats.expense)}</p>
-             </div>
+             <div className="flex-1 overflow-hidden"><p className="text-[9px] font-black text-emerald-400 uppercase">This Month In</p><p className="font-bold text-sm truncate">{formatCurrency(stats.income)}</p></div>
+             <div className="flex-1 overflow-hidden"><p className="text-[9px] font-black text-rose-400 uppercase">This Month Out</p><p className="font-bold text-sm truncate">{formatCurrency(stats.expense)}</p></div>
           </div>
         </div>
-        <Card title="Month Total Income" value={formatCurrency(monthlyStats.income)} color={isDarkMode ? COLORS.GOLD : COLORS.DEEP_BLUE} isDarkMode={isDarkMode} />
-        <Card title="Month Total Expenses" value={formatCurrency(monthlyStats.expense)} color={COLORS.RED} isDarkMode={isDarkMode} />
+
+        <Card title="Selected Month Income" value={formatCurrency(stats.income)} color={isDarkMode ? COLORS.GOLD : COLORS.DEEP_BLUE} isDarkMode={isDarkMode} />
+        <Card title="Selected Month Expenses" value={formatCurrency(stats.expense)} color={COLORS.RED} isDarkMode={isDarkMode} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
@@ -302,20 +304,20 @@ function DashboardView({ monthlyStats, lifetimeStats, formatCurrency, isDarkMode
             <Activity size={18} className="text-[#F77F00]"/> Monthly Cash Flow
           </h3>
           <div className="space-y-10 py-4 flex-1 flex flex-col justify-center">
-            <ProgressBar label="Total Income" value={monthlyStats.income} max={Math.max(monthlyStats.income, monthlyStats.expense)} color={isDarkMode ? COLORS.GOLD : COLORS.DEEP_BLUE} formatCurrency={formatCurrency} />
-            <ProgressBar label="Total Expenses" value={monthlyStats.expense} max={Math.max(monthlyStats.income, monthlyStats.expense)} color={COLORS.RED} formatCurrency={formatCurrency} />
+            <ProgressBar label="Total Income" value={stats.income} max={Math.max(stats.income, stats.expense)} color={isDarkMode ? COLORS.GOLD : COLORS.DEEP_BLUE} formatCurrency={formatCurrency} />
+            <ProgressBar label="Total Expenses" value={stats.expense} max={Math.max(stats.income, stats.expense)} color={COLORS.RED} formatCurrency={formatCurrency} />
           </div>
         </div>
         
         <div className="bg-[#FDFBF7] dark:bg-[#003049] p-8 rounded-[2.5rem] shadow-sm border border-black/5 dark:border-white/5 flex flex-col min-h-[350px]">
           <h3 className="text-sm font-black uppercase tracking-widest mb-8">Category Breakdown</h3>
-          {monthlyStats.sortedCats.length === 0 ? (
+          {stats.sortedCats.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-center opacity-40 font-bold italic">No spending logged for this month</div>
           ) : (
             <div className="flex flex-col sm:flex-row items-center gap-8 flex-1">
-              <DonutChart categories={monthlyStats.sortedCats} total={monthlyStats.expense} isDarkMode={isDarkMode} />
+              <DonutChart categories={stats.sortedCats} total={stats.expense} isDarkMode={isDarkMode} />
               <div className="flex-1 w-full space-y-3 overflow-y-auto max-h-[220px] pr-2 custom-scrollbar">
-                {monthlyStats.sortedCats.map(c => (
+                {stats.sortedCats.map(c => (
                   <div key={c.name} className="flex justify-between items-center text-xs font-black">
                     <span className="flex items-center gap-2 opacity-70">
                       <div className="w-2 h-2 rounded-full shrink-0" style={{background:c.color}}></div>
@@ -363,4 +365,189 @@ function DonutChart({ categories, total, isDarkMode }) {
   const slices = categories.map(c => {
     const p = (c.amount / total) * 100;
     const start = acc; acc += p;
-    return `${c.color}
+    return `${c.color} ${start}% ${acc}%`;
+  }).join(', ');
+  return (
+    <div className="w-44 h-44 rounded-full relative flex items-center justify-center shrink-0 shadow-xl transition-transform hover:scale-105 duration-500" style={{ background: `conic-gradient(${slices})` }}>
+      <div className={`w-28 h-28 rounded-full flex items-center justify-center shadow-inner ${isDarkMode ? 'bg-[#003049]' : 'bg-[#FDFBF7]'}`}>
+        <div className="text-center px-4 overflow-hidden">
+          <span className="block text-[9px] font-black opacity-30 uppercase tracking-tighter">Total Spent</span>
+          <span className="block text-sm font-black opacity-60 truncate">{Math.round(total / 1000)}k</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ListView({ data, formatCurrency, onDelete, title, color, isDarkMode }) {
+  return (
+    <div className="bg-[#FDFBF7] dark:bg-[#003049] rounded-[2.5rem] shadow-xl overflow-hidden border border-black/5 dark:border-white/5 animate-in slide-in-from-bottom-5 duration-500">
+      <div className="p-8 border-b border-black/5 dark:border-white/5 flex justify-between items-center bg-black/[0.01] dark:bg-white/[0.01]">
+        <h3 className="font-black text-xl tracking-tight" style={{color}}>{title}</h3>
+        <span className="text-[10px] font-black opacity-40 uppercase tracking-widest bg-black/5 dark:bg-white/5 px-3 py-1.5 rounded-full">{data.length} entries</span>
+      </div>
+      <div className="divide-y divide-black/5 dark:divide-white/5 max-h-[500px] overflow-y-auto custom-scrollbar">
+        {data.map(item => (
+          <div key={item.id} className="p-6 flex justify-between items-center group hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-all">
+            <div className="flex items-center gap-5 overflow-hidden">
+              <div className="text-left truncate">
+                <p className="font-black text-sm truncate">{item.source}</p>
+                <p className="text-[10px] font-bold opacity-40 uppercase mt-1 tracking-tight">
+                  {new Date(item.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} • {item.category}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-6 shrink-0">
+              <p className="font-black text-base tracking-tighter" style={{color: item.type==='income' ? (isDarkMode ? COLORS.GOLD : COLORS.DEEP_BLUE) : COLORS.RED}}>
+                {item.type==='income' ? '+':'-'}{formatCurrency(item.amount)}
+              </p>
+              <button onClick={() => onDelete(item.id)} className="text-red-400 opacity-0 group-hover:opacity-100 transition-all hover:scale-125 p-2 bg-red-50 dark:bg-red-500/10 rounded-full"><Trash2 size={16}/></button>
+            </div>
+          </div>
+        ))}
+        {data.length === 0 && <div className="p-24 text-center opacity-30 font-black italic uppercase tracking-widest text-xs">No records available</div>}
+      </div>
+    </div>
+  );
+}
+
+function InvestmentsView({ transactions, formatCurrency, total, onDelete, isDarkMode }) {
+  const items = transactions.filter(t => t.type === 'investment');
+  const grouped = items.reduce((a, c) => { a[c.category] = (a[c.category] || 0) + c.amount; return a; }, {});
+  
+  return (
+    <div className="space-y-8 animate-in fade-in duration-500">
+      <div className="bg-[#F77F00] p-10 sm:p-14 rounded-[3.5rem] text-white shadow-2xl relative overflow-hidden border border-white/10">
+        <div className="relative z-10">
+          <p className="font-black uppercase tracking-widest opacity-60 text-xs mb-2">Net Portfolio Value</p>
+          <h2 className="text-5xl sm:text-6xl font-black tracking-tighter">{formatCurrency(total)}</h2>
+        </div>
+        <TrendingUp size={240} className="absolute -right-20 -bottom-20 opacity-10 rotate-12" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="bg-[#FDFBF7] dark:bg-[#003049] p-8 rounded-[2.5rem] border border-black/5 dark:border-white/5 flex flex-col h-full">
+          <h3 className="font-black mb-8 uppercase tracking-widest text-xs opacity-50">Allocation Distribution</h3>
+          <div className="space-y-4 flex-1 overflow-y-auto">
+            {Object.entries(grouped).sort((a,b)=>b[1]-a[1]).map(([cat, amt]) => (
+              <div key={cat} className="p-5 rounded-2xl bg-black/5 dark:bg-white/5 flex justify-between items-center hover:scale-[1.02] transition-transform">
+                <span className="font-black text-sm uppercase tracking-tighter">{cat}</span>
+                <span className="font-black text-lg text-[#F77F00]">{formatCurrency(amt)}</span>
+              </div>
+            ))}
+            {Object.keys(grouped).length === 0 && <p className="m-auto opacity-30 font-black italic uppercase text-xs">No active investments</p>}
+          </div>
+        </div>
+        <ListView data={items} formatCurrency={formatCurrency} onDelete={onDelete} title="Recent Additions" color={COLORS.ORANGE} isDarkMode={isDarkMode} />
+      </div>
+    </div>
+  );
+}
+
+function ProfileView({ user, transactions, formatCurrency, isDarkMode }) {
+  const stats = useMemo(() => {
+    let inc = 0, exp = 0, inv = 0;
+    transactions.forEach(t => {
+      if(t.type==='income') inc+=t.amount;
+      else if(t.type==='expense') exp+=t.amount;
+      else if(t.type==='investment') inv+=t.amount;
+    });
+    return { net: inc-exp, inv, count: transactions.length };
+  }, [transactions]);
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-500">
+      <div className="bg-[#003049] p-10 sm:p-14 rounded-[3.5rem] text-[#EAE2B7] flex flex-col md:flex-row items-center gap-10 shadow-xl border border-white/5">
+        <div className="w-40 h-40 rounded-full bg-white/10 flex items-center justify-center border-4 border-white/10 shadow-inner shrink-0 overflow-hidden">
+          <User size={80} className="opacity-40"/>
+        </div>
+        <div className="text-center md:text-left flex-1 overflow-hidden">
+          <h2 className="text-4xl sm:text-5xl font-black mb-4 truncate tracking-tighter">
+            {user?.isAnonymous ? "Guest Account" : (user?.email?.split('@')[0] || "Financial Pro")}
+          </h2>
+          <p className="font-bold opacity-60 tracking-wider mb-6 truncate">{user?.email || "Anonymous Local Data"}</p>
+          <span className="px-5 py-2 bg-white/10 rounded-full text-[9px] font-black uppercase tracking-widest border border-white/10 shadow-sm inline-block">UID: {user?.uid.slice(0,16)}...</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+        <Card title="Lifetime Surplus" value={formatCurrency(stats.net)} color={isDarkMode ? COLORS.GOLD : COLORS.DEEP_BLUE} isDarkMode={isDarkMode} />
+        <Card title="Total Assets" value={formatCurrency(stats.inv)} color={COLORS.ORANGE} isDarkMode={isDarkMode} />
+        <Card title="Synced Logs" value={stats.count} color={isDarkMode ? COLORS.WHITE : COLORS.RED} isDarkMode={isDarkMode} />
+      </div>
+    </div>
+  );
+}
+
+function TransactionModal({ onClose, onSave, isDarkMode }) {
+  const [type, setType] = useState('expense');
+  const [amount, setAmount] = useState('');
+  const [category, setCategory] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [source, setSource] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const categories = {
+    expense: ['Food & Dining', 'Transportation', 'Shopping', 'Entertainment', 'Bills & Utilities', 'Groceries', 'Health', 'Other'],
+    income: ['Salary', 'Freelance', 'Dividends', 'Refunds', 'Gift', 'Other'],
+    investment: ['Mutual Funds', 'Stocks', 'Fixed Deposit', 'Crypto', 'Real Estate', 'Other']
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if(!amount || !category || !source) return;
+    setLoading(true);
+    await onSave({ type, amount: parseFloat(amount), category, date, source });
+    setLoading(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+      <div className="bg-[#FDFBF7] dark:bg-[#003049] rounded-[2.5rem] sm:rounded-[3.5rem] shadow-2xl w-full max-w-lg overflow-hidden border border-white/10 flex flex-col max-h-[90vh]">
+        
+        <div className="p-6 sm:p-8 border-b border-black/5 dark:border-white/5 flex justify-between items-center shrink-0">
+          <h2 className="text-2xl sm:text-3xl font-black tracking-tighter">New Record</h2>
+          <button type="button" onClick={onClose} className="p-2 hover:bg-black/5 rounded-full transition-colors">
+             <X size={24} className="opacity-40"/>
+          </button>
+        </div>
+
+        <form onSubmit={submit} className="p-6 sm:p-8 space-y-6 sm:space-y-8 overflow-y-auto">
+          <div className="flex bg-black/5 dark:bg-black/20 p-2 rounded-[2rem] shrink-0">
+            {['expense', 'income', 'investment'].map(t => (
+              <button key={t} type="button" onClick={() => {setType(t); setCategory('')}} className={`flex-1 py-3 sm:py-4 text-[10px] font-black uppercase tracking-widest rounded-2xl capitalize transition-all ${type === t ? (isDarkMode ? 'bg-[#FCBF49] text-[#003049]' : 'bg-[#003049] text-white') + ' shadow-lg' : 'opacity-40 hover:opacity-100'}`}>{t}</button>
+            ))}
+          </div>
+
+          <div className="space-y-6">
+            <div className="relative border-b-4 border-black/10 dark:border-white/10 focus-within:border-[#FCBF49] transition-all pb-2">
+              <span className="absolute left-0 top-2 sm:top-4 text-3xl sm:text-4xl font-black opacity-20">₹</span>
+              <input type="number" required placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} className="w-full pl-8 sm:pl-10 py-2 sm:py-4 text-5xl sm:text-6xl font-black bg-transparent outline-none placeholder:opacity-10 tracking-tighter text-[#003049] dark:text-[#EAE2B7]" />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[#003049] dark:text-[#EAE2B7]">
+              <div className="space-y-2">
+                 <label className="text-[10px] font-black uppercase opacity-40 ml-4 tracking-widest">Entry Date</label>
+                 <input type="date" required value={date} onChange={e => setDate(e.target.value)} className="w-full p-4 rounded-2xl bg-black/5 dark:bg-black/20 font-bold outline-none border-2 border-transparent focus:border-[#FCBF49] transition-all" />
+              </div>
+              <div className="space-y-2">
+                 <label className="text-[10px] font-black uppercase opacity-40 ml-4 tracking-widest">Category</label>
+                 <select required value={category} onChange={e => setCategory(e.target.value)} className="w-full p-4 rounded-2xl bg-black/5 dark:bg-black/20 font-bold outline-none border-2 border-transparent focus:border-[#FCBF49] transition-all cursor-pointer">
+                    <option value="">Select...</option>
+                    {categories[type].map(c => <option key={c} value={c} className="bg-white dark:bg-[#003049]">{c}</option>)}
+                 </select>
+              </div>
+            </div>
+
+            <div className="space-y-2 text-[#003049] dark:text-[#EAE2B7]">
+              <label className="text-[10px] font-black uppercase opacity-40 ml-4 tracking-widest">Source / Note</label>
+              <input type="text" required placeholder="e.g. Salary, Amazon, Starbucks" value={source} onChange={e => setSource(e.target.value)} className="w-full p-4 sm:p-5 rounded-2xl bg-black/5 dark:bg-black/20 font-bold outline-none border-2 border-transparent focus:border-[#FCBF49] transition-all" />
+            </div>
+          </div>
+          
+          <button type="submit" disabled={loading} className="w-full bg-[#003049] dark:bg-[#FCBF49] text-white dark:text-[#003049] py-5 sm:py-6 rounded-[2.5rem] font-black text-xl sm:text-2xl shadow-xl active:scale-[0.98] transition-all disabled:opacity-50 shrink-0 mt-4">
+            {loading ? <Loader2 className="animate-spin mx-auto" size={32}/> : "SAVE ENTRY"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
