@@ -331,18 +331,22 @@ export default function App() {
 
         {/* MAIN */}
         <main className="flex-1 flex flex-col overflow-hidden relative">
-          <header className="p-4 sm:p-6 flex justify-between items-center bg-[#FDFBF7]/50 dark:bg-[#003049]/50 backdrop-blur-md z-10 border-b border-black/5 dark:border-white/5">
-            <div className="flex items-center gap-2 sm:gap-4">
+          
+          {/* RESPONSIVE HEADER FIX */}
+          <header className="p-4 sm:p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-0 bg-[#FDFBF7]/50 dark:bg-[#003049]/50 backdrop-blur-md z-10 border-b border-black/5 dark:border-white/5 shrink-0">
+            <div className="flex items-center gap-3 sm:gap-4 w-full md:w-auto shrink-0">
               <button className="md:hidden p-2 bg-black/5 dark:bg-white/5 rounded-lg" onClick={() => setIsMobileMenuOpen(true)}>
                 <Menu size={24}/>
               </button>
               <button className="hidden md:block p-2 bg-black/5 dark:bg-white/5 rounded-lg hover:bg-black/10 transition-all text-[#003049] dark:text-[#EAE2B7]" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
                 <Menu size={20}/>
               </button>
-              <h2 className="text-lg sm:text-xl font-black uppercase tracking-widest opacity-70 truncate ml-2">{currentView}</h2>
+              <h2 className="text-lg sm:text-xl font-black uppercase tracking-widest opacity-70 truncate">{currentView}</h2>
             </div>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2.5 bg-black/5 dark:bg-white/5 rounded-xl hover:bg-black/10 transition-all shrink-0">
+            
+            {/* WRAPPED & SCROLLABLE CONTROLS FOR MOBILE */}
+            <div className="flex items-center gap-2 sm:gap-3 w-full md:w-auto overflow-x-auto pb-1 md:pb-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+              <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 sm:p-2.5 bg-black/5 dark:bg-white/5 rounded-xl hover:bg-black/10 transition-all shrink-0">
                 {isDarkMode ? <Sun size={20}/> : <Moon size={20}/>}
               </button>
               <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-xl shrink-0">
@@ -355,8 +359,8 @@ export default function App() {
                   {availableYears.map(y => <option key={y} value={y} className="bg-white dark:bg-[#003049]">{y}</option>)}
                 </select>
               </div>
-              <button onClick={() => {setEditingTransaction(null); setIsModalOpen(true);}} className="bg-[#003049] dark:bg-[#FCBF49] text-white dark:text-[#003049] px-4 py-2.5 rounded-xl font-black shadow-lg flex items-center gap-2 active:scale-95 transition-all text-sm shrink-0">
-                <Plus size={18}/> <span className="hidden sm:inline">Add Record</span>
+              <button onClick={() => {setEditingTransaction(null); setIsModalOpen(true);}} className="bg-[#003049] dark:bg-[#FCBF49] text-white dark:text-[#003049] px-4 py-2 sm:py-2.5 rounded-xl font-black shadow-lg flex items-center gap-2 active:scale-95 transition-all text-sm shrink-0 whitespace-nowrap">
+                <Plus size={18}/> <span>Add Record</span>
               </button>
             </div>
           </header>
