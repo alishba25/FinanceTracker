@@ -58,6 +58,17 @@ const COLORS = {
 
 const CHART_COLORS = [COLORS.RED, COLORS.ORANGE, COLORS.GOLD, "#457B9D", "#8E9A9B"];
 
+// --- CURRENCY DICTIONARY ---
+const CURRENCIES = {
+  INR: { symbol: '₹', rate: 1, locale: 'en-IN' },
+  USD: { symbol: '$', rate: 0.012, locale: 'en-US' },
+  EUR: { symbol: '€', rate: 0.011, locale: 'en-IE' },
+  GBP: { symbol: '£', rate: 0.0095, locale: 'en-GB' },
+  JPY: { symbol: '¥', rate: 1.8, locale: 'ja-JP' },
+  AUD: { symbol: 'A$', rate: 0.018, locale: 'en-AU' },
+  CAD: { symbol: 'C$', rate: 0.016, locale: 'en-CA' }
+};
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [isAuthenticating, setIsAuthenticating] = useState(true);
@@ -71,10 +82,11 @@ export default function App() {
   const [editingTransaction, setEditingTransaction] = useState(null);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
 
-  // Layout States
+  // Layout & Settings States
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [selectedCurrency, setSelectedCurrency] = useState('INR');
   
   // Auth Form State
   const [email, setEmail] = useState('');
@@ -142,8 +154,8 @@ export default function App() {
     setEditingTransaction(null);
   };
 
-  const handleAdjustBalance = async (newActualBalance) => {
-    const diff = newActualBalance - lifetimeBalance;
+  const handleAdjustBalance = async (targetBaseBalance) => {
+    const diff = targetBaseBalance - lifetimeBalance;
     if (diff === 0) {
       setIsAdjustModalOpen(false);
       return;
@@ -271,7 +283,12 @@ export default function App() {
     return Array.from(years).sort((a, b) => b - a);
   }, [transactions]);
 
-  const formatCurrency = (amt) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amt);
+  // Currency Formatter uses live-selected currency logic
+  const formatCurrency = (baseAmt) => {
+    const { rate, locale } = CURRENCIES[selectedCurrency];
+    const converted = baseAmt * rate;
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: selectedCurrency, maximumFractionDigits: 0 }).format(converted);
+  };
 
   // --- LOGIN VIEW ---
   if (!user) {
@@ -332,7 +349,7 @@ export default function App() {
         {/* MAIN */}
         <main className="flex-1 flex flex-col overflow-hidden relative">
           
-          {/* RESPONSIVE HEADER FIX */}
+          {/* RESPONSIVE HEADER */}
           <header className="p-4 sm:p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-0 bg-[#FDFBF7]/50 dark:bg-[#003049]/50 backdrop-blur-md z-10 border-b border-black/5 dark:border-white/5 shrink-0">
             <div className="flex items-center gap-3 sm:gap-4 w-full md:w-auto shrink-0">
               <button className="md:hidden p-2 bg-black/5 dark:bg-white/5 rounded-lg" onClick={() => setIsMobileMenuOpen(true)}>
@@ -346,9 +363,19 @@ export default function App() {
             
             {/* WRAPPED & SCROLLABLE CONTROLS FOR MOBILE */}
             <div className="flex items-center gap-2 sm:gap-3 w-full md:w-auto overflow-x-auto pb-1 md:pb-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+              
+              {/* CURRENCY DROPDOWN */}
+              <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-xl shrink-0">
+                <select className="bg-transparent text-sm font-bold p-1.5 outline-none cursor-pointer" value={selectedCurrency} onChange={e => setSelectedCurrency(e.target.value)}>
+                  {Object.keys(CURRENCIES).map(c => <option key={c} value={c} className="bg-white dark:bg-[#003049]">{c}</option>)}
+                </select>
+              </div>
+
               <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 sm:p-2.5 bg-black/5 dark:bg-white/5 rounded-xl hover:bg-black/10 transition-all shrink-0">
                 {isDarkMode ? <Sun size={20}/> : <Moon size={20}/>}
               </button>
+
+              {/* DATE FILTERS */}
               <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-xl shrink-0">
                 <select className="bg-transparent text-sm font-bold p-1.5 outline-none cursor-pointer" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value === 'All' ? 'All' : Number(e.target.value))}>
                   <option value="All" className="bg-white dark:bg-[#003049]">All Months</option>
@@ -359,6 +386,7 @@ export default function App() {
                   {availableYears.map(y => <option key={y} value={y} className="bg-white dark:bg-[#003049]">{y}</option>)}
                 </select>
               </div>
+              
               <button onClick={() => {setEditingTransaction(null); setIsModalOpen(true);}} className="bg-[#003049] dark:bg-[#FCBF49] text-white dark:text-[#003049] px-4 py-2 sm:py-2.5 rounded-xl font-black shadow-lg flex items-center gap-2 active:scale-95 transition-all text-sm shrink-0 whitespace-nowrap">
                 <Plus size={18}/> <span>Add Record</span>
               </button>
@@ -377,8 +405,8 @@ export default function App() {
         </main>
 
         {/* MODALS */}
-        {isModalOpen && <TransactionModal onClose={() => {setIsModalOpen(false); setEditingTransaction(null);}} onSave={handleSaveTransaction} isDarkMode={isDarkMode} initialData={editingTransaction} />}
-        {isAdjustModalOpen && <AdjustBalanceModal onClose={() => setIsAdjustModalOpen(false)} onSave={handleAdjustBalance} currentBalance={lifetimeBalance} isDarkMode={isDarkMode} />}
+        {isModalOpen && <TransactionModal onClose={() => {setIsModalOpen(false); setEditingTransaction(null);}} onSave={handleSaveTransaction} isDarkMode={isDarkMode} initialData={editingTransaction} selectedCurrency={selectedCurrency} />}
+        {isAdjustModalOpen && <AdjustBalanceModal onClose={() => setIsAdjustModalOpen(false)} onSave={handleAdjustBalance} currentBalance={lifetimeBalance} formatCurrency={formatCurrency} isDarkMode={isDarkMode} selectedCurrency={selectedCurrency} />}
         {isResetModalOpen && <ConfirmResetModal onClose={() => setIsResetModalOpen(false)} onConfirm={handleResetData} isDarkMode={isDarkMode} isDeleting={isDeletingAll} />}
       </div>
     </div>
@@ -656,9 +684,11 @@ function ProfileView({ user, transactions, formatCurrency, isDarkMode, onResetCl
 
 // --- MODALS ---
 
-function TransactionModal({ onClose, onSave, isDarkMode, initialData }) {
+function TransactionModal({ onClose, onSave, isDarkMode, initialData, selectedCurrency }) {
   const [type, setType] = useState(initialData?.type || 'expense');
-  const [amount, setAmount] = useState(initialData?.amount || '');
+  // Initialize input field mathematically converted to the active currency
+  const initialDisplayAmount = initialData ? (initialData.amount * CURRENCIES[selectedCurrency].rate).toFixed(2) : '';
+  const [amount, setAmount] = useState(initialDisplayAmount);
   const [category, setCategory] = useState(initialData?.category || '');
   const [date, setDate] = useState(initialData?.date || new Date().toISOString().split('T')[0]);
   const [source, setSource] = useState(initialData?.source || '');
@@ -674,7 +704,11 @@ function TransactionModal({ onClose, onSave, isDarkMode, initialData }) {
     e.preventDefault();
     if(!amount || !category || !source) return;
     setLoading(true);
-    await onSave({ type, amount: parseFloat(amount), category, date, source });
+    
+    // Save to Firestore by converting the typed amount back down to base currency logic (INR)
+    const baseAmount = parseFloat(amount) / CURRENCIES[selectedCurrency].rate;
+    
+    await onSave({ type, amount: baseAmount, category, date, source });
     setLoading(false);
   };
 
@@ -698,7 +732,7 @@ function TransactionModal({ onClose, onSave, isDarkMode, initialData }) {
 
           <div className="space-y-6">
             <div className="relative border-b-4 border-black/10 dark:border-white/10 focus-within:border-[#FCBF49] transition-all pb-2">
-              <span className="absolute left-0 top-2 sm:top-4 text-3xl sm:text-4xl font-black opacity-20">₹</span>
+              <span className="absolute left-0 top-2 sm:top-4 text-3xl sm:text-4xl font-black opacity-20">{CURRENCIES[selectedCurrency].symbol}</span>
               <input type="number" required placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} className="w-full pl-8 sm:pl-10 py-2 sm:py-4 text-5xl sm:text-6xl font-black bg-transparent outline-none placeholder:opacity-10 tracking-tighter text-[#003049] dark:text-[#EAE2B7]" />
             </div>
 
@@ -731,13 +765,16 @@ function TransactionModal({ onClose, onSave, isDarkMode, initialData }) {
   );
 }
 
-function AdjustBalanceModal({ onClose, onSave, currentBalance, isDarkMode }) {
+function AdjustBalanceModal({ onClose, onSave, currentBalance, formatCurrency, isDarkMode, selectedCurrency }) {
   const [actualBalance, setActualBalance] = useState('');
   
   const submit = (e) => {
     e.preventDefault();
     if (!actualBalance) return;
-    onSave(parseFloat(actualBalance));
+    
+    // We must send the actual parsed base amount to the onSave handler to diff it properly.
+    const targetBaseBalance = parseFloat(actualBalance) / CURRENCIES[selectedCurrency].rate;
+    onSave(targetBaseBalance);
   };
 
   return (
@@ -748,9 +785,9 @@ function AdjustBalanceModal({ onClose, onSave, currentBalance, isDarkMode }) {
           <button type="button" onClick={onClose} className="p-2 hover:bg-black/5 rounded-full"><X size={20} className="opacity-40"/></button>
         </div>
         <form onSubmit={submit} className="p-8 space-y-6 text-[#003049] dark:text-[#EAE2B7]">
-          <p className="text-sm font-bold opacity-70">App calculated balance is <span className="text-[#F77F00]">{currentBalance}</span>. Enter your actual bank balance below to auto-adjust your ledger.</p>
+          <p className="text-sm font-bold opacity-70">App calculated balance is <span className="text-[#F77F00]">{formatCurrency(currentBalance)}</span>. Enter your actual bank balance below to auto-adjust your ledger.</p>
           <div className="relative border-b-4 border-black/10 dark:border-white/10 focus-within:border-[#FCBF49] transition-all pb-2">
-              <span className="absolute left-0 top-1 text-2xl font-black opacity-20">₹</span>
+              <span className="absolute left-0 top-1 text-2xl font-black opacity-20">{CURRENCIES[selectedCurrency].symbol}</span>
               <input type="number" required placeholder="0.00" value={actualBalance} onChange={e => setActualBalance(e.target.value)} className="w-full pl-8 py-1 text-4xl font-black bg-transparent outline-none placeholder:opacity-10 tracking-tighter text-[#003049] dark:text-[#EAE2B7]" />
           </div>
           <button type="submit" className="w-full bg-[#003049] dark:bg-[#FCBF49] text-white dark:text-[#003049] py-4 rounded-2xl font-black text-lg shadow-xl active:scale-[0.98] transition-all mt-4">Adjust Now</button>
