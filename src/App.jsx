@@ -17,6 +17,7 @@ import {
   ShoppingBag,
   LogOut,
   Trash2,
+  Pencil,
   Loader2,
   User
 } from 'lucide-react';
@@ -24,7 +25,7 @@ import {
 // --- FIREBASE IMPORTS & INIT ---
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInWithCustomToken, signInAnonymously, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, addDoc, doc, deleteDoc } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, addDoc, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 
 // Environment variables fallback for local dev
 const firebaseConfig = typeof _firebase_config !== 'undefined' ? JSON.parse(_firebase_config) : {
@@ -62,7 +63,9 @@ export default function App() {
   const [currentView, setCurrentView] = useState('dashboard');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState(null);
   
   // Auth Form State
   const [email, setEmail] = useState('');
@@ -118,10 +121,21 @@ export default function App() {
     return () => unsubscribe();
   }, [user, appId]);
 
-  const handleAddTransaction = async (txn) => {
-    const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'transactions');
-    await addDoc(colRef, { ...txn, timestamp: Date.now() });
+  const handleSaveTransaction = async (txn) => {
+    if (editingTransaction) {
+      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'transactions', editingTransaction.id);
+      await updateDoc(docRef, txn);
+    } else {
+      const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'transactions');
+      await addDoc(colRef, { ...txn, timestamp: Date.now() });
+    }
     setIsModalOpen(false);
+    setEditingTransaction(null);
+  };
+
+  const handleEdit = (txn) => {
+    setEditingTransaction(txn);
+    setIsModalOpen(true);
   };
 
   const handleDelete = async (id) => {
@@ -227,30 +241,45 @@ export default function App() {
     <div className={`fixed inset-0 w-full h-full ${isDarkMode ? 'dark' : ''}`}>
       <div className="flex w-full h-full bg-[#EAE2B7] dark:bg-[#001D2C] text-[#003049] dark:text-[#EAE2B7] overflow-hidden transition-colors duration-500">
         
+        {/* MOBILE OVERLAY */}
+        {isMobileMenuOpen && (
+          <div className="fixed inset-0 bg-black/50 z-30 md:hidden backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)}></div>
+        )}
+
         {/* SIDEBAR */}
-        <aside className="hidden md:flex flex-col w-72 bg-[#FDFBF7] dark:bg-[#003049] border-r border-black/5 dark:border-white/5 p-6 transition-colors shrink-0">
-          <div className="flex items-center gap-3 mb-10">
-            <div className="bg-[#003049] dark:bg-[#FCBF49] p-2 rounded-lg text-white dark:text-[#003049] shadow-sm shrink-0"><Wallet size={24}/></div>
-            <h1 className="text-2xl font-black tracking-tight truncate uppercase">FinTrack</h1>
-          </div>
-          <nav className="flex-1 space-y-2 overflow-y-auto pr-2 custom-scrollbar">
-            <SidebarLink icon={<LayoutDashboard size={20}/>} label="Dashboard" active={currentView==='dashboard'} onClick={() => setCurrentView('dashboard')} isDarkMode={isDarkMode} />
-            <SidebarLink icon={<Banknote size={20}/>} label="Income History" active={currentView==='income'} onClick={() => setCurrentView('income')} isDarkMode={isDarkMode} />
-            <SidebarLink icon={<ShoppingBag size={20}/>} label="Expense History" active={currentView==='expenses'} onClick={() => setCurrentView('expenses')} isDarkMode={isDarkMode} />
-            <SidebarLink icon={<TrendingUp size={20}/>} label="Investments" active={currentView==='investments'} onClick={() => setCurrentView('investments')} isDarkMode={isDarkMode} />
-            <SidebarLink icon={<User size={20}/>} label="My Profile" active={currentView==='profile'} onClick={() => setCurrentView('profile')} isDarkMode={isDarkMode} />
-          </nav>
-          <div className="pt-6 border-t border-black/5 dark:border-white/5">
-            <button onClick={() => signOut(auth)} className="w-full flex items-center gap-3 p-4 text-red-500 font-bold hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-all"><LogOut size={20}/> Logout</button>
+        <aside className={`fixed md:relative z-40 h-full flex flex-col bg-[#FDFBF7] dark:bg-[#003049] border-r border-black/5 dark:border-white/5 transition-all duration-300 shrink-0 
+          ${isMobileMenuOpen ? 'translate-x-0 w-72 p-6 shadow-2xl md:shadow-none' : '-translate-x-full w-72 p-6'} 
+          md:translate-x-0 ${isSidebarOpen ? 'md:w-72 md:p-6' : 'md:w-0 md:p-0 md:opacity-0 md:border-none'}`}>
+          
+          <div className="w-60 flex flex-col h-full">
+            <div className="flex items-center gap-3 mb-10">
+              <div className="bg-[#003049] dark:bg-[#FCBF49] p-2 rounded-lg text-white dark:text-[#003049] shadow-sm shrink-0"><Wallet size={24}/></div>
+              <h1 className="text-2xl font-black tracking-tight truncate uppercase">FinTrack</h1>
+            </div>
+            <nav className="flex-1 space-y-2 overflow-y-auto pr-2 custom-scrollbar -mr-2">
+              <SidebarLink icon={<LayoutDashboard size={20}/>} label="Dashboard" active={currentView==='dashboard'} onClick={() => {setCurrentView('dashboard'); setIsMobileMenuOpen(false);}} isDarkMode={isDarkMode} />
+              <SidebarLink icon={<Banknote size={20}/>} label="Income History" active={currentView==='income'} onClick={() => {setCurrentView('income'); setIsMobileMenuOpen(false);}} isDarkMode={isDarkMode} />
+              <SidebarLink icon={<ShoppingBag size={20}/>} label="Expense History" active={currentView==='expenses'} onClick={() => {setCurrentView('expenses'); setIsMobileMenuOpen(false);}} isDarkMode={isDarkMode} />
+              <SidebarLink icon={<TrendingUp size={20}/>} label="Investments" active={currentView==='investments'} onClick={() => {setCurrentView('investments'); setIsMobileMenuOpen(false);}} isDarkMode={isDarkMode} />
+              <SidebarLink icon={<User size={20}/>} label="My Profile" active={currentView==='profile'} onClick={() => {setCurrentView('profile'); setIsMobileMenuOpen(false);}} isDarkMode={isDarkMode} />
+            </nav>
+            <div className="pt-6 border-t border-black/5 dark:border-white/5 mt-4">
+              <button onClick={() => signOut(auth)} className="w-full flex items-center gap-3 p-4 text-red-500 font-bold hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-all"><LogOut size={20}/> Logout</button>
+            </div>
           </div>
         </aside>
 
         {/* MAIN */}
         <main className="flex-1 flex flex-col overflow-hidden relative">
-          <header className="p-6 flex justify-between items-center bg-[#FDFBF7]/50 dark:bg-[#003049]/50 backdrop-blur-md z-10 border-b border-black/5 dark:border-white/5">
-            <div className="flex items-center gap-4">
-              <button className="md:hidden p-2 bg-black/5 rounded-lg" onClick={() => setIsMobileMenuOpen(true)}><Menu size={24}/></button>
-              <h2 className="text-xl font-black uppercase tracking-widest opacity-70 truncate">{currentView}</h2>
+          <header className="p-4 sm:p-6 flex justify-between items-center bg-[#FDFBF7]/50 dark:bg-[#003049]/50 backdrop-blur-md z-10 border-b border-black/5 dark:border-white/5">
+            <div className="flex items-center gap-2 sm:gap-4">
+              <button className="md:hidden p-2 bg-black/5 dark:bg-white/5 rounded-lg" onClick={() => setIsMobileMenuOpen(true)}>
+                <Menu size={24}/>
+              </button>
+              <button className="hidden md:block p-2 bg-black/5 dark:bg-white/5 rounded-lg hover:bg-black/10 transition-all text-[#003049] dark:text-[#EAE2B7]" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+                <Menu size={20}/>
+              </button>
+              <h2 className="text-lg sm:text-xl font-black uppercase tracking-widest opacity-70 truncate ml-2">{currentView}</h2>
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
               <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2.5 bg-black/5 dark:bg-white/5 rounded-xl hover:bg-black/10 transition-all shrink-0">
@@ -264,7 +293,7 @@ export default function App() {
                   {[2024, 2025, 2026].map(y => <option key={y} value={y} className="bg-white dark:bg-[#003049]">{y}</option>)}
                 </select>
               </div>
-              <button onClick={() => setIsModalOpen(true)} className="bg-[#003049] dark:bg-[#FCBF49] text-white dark:text-[#003049] px-4 py-2.5 rounded-xl font-black shadow-lg flex items-center gap-2 active:scale-95 transition-all text-sm shrink-0">
+              <button onClick={() => {setEditingTransaction(null); setIsModalOpen(true);}} className="bg-[#003049] dark:bg-[#FCBF49] text-white dark:text-[#003049] px-4 py-2.5 rounded-xl font-black shadow-lg flex items-center gap-2 active:scale-95 transition-all text-sm shrink-0">
                 <Plus size={18}/> <span className="hidden sm:inline">Add Record</span>
               </button>
             </div>
@@ -273,15 +302,15 @@ export default function App() {
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10 scroll-smooth">
             <div className="max-w-6xl mx-auto pb-10">
               {currentView === 'dashboard' && <DashboardView stats={stats} lifetimeBalance={lifetimeBalance} formatCurrency={formatCurrency} isDarkMode={isDarkMode} />}
-              {currentView === 'income' && <ListView data={filtered.filter(t => t.type === 'income')} formatCurrency={formatCurrency} onDelete={handleDelete} title="Income Logs" color={isDarkMode ? COLORS.GOLD : COLORS.DEEP_BLUE} isDarkMode={isDarkMode} />}
-              {currentView === 'expenses' && <ListView data={filtered.filter(t => t.type === 'expense')} formatCurrency={formatCurrency} onDelete={handleDelete} title="Expense Logs" color={COLORS.RED} isDarkMode={isDarkMode} />}
-              {currentView === 'investments' && <InvestmentsView transactions={transactions} formatCurrency={formatCurrency} total={totalPortfolio} onDelete={handleDelete} isDarkMode={isDarkMode} />}
+              {currentView === 'income' && <ListView data={filtered.filter(t => t.type === 'income')} formatCurrency={formatCurrency} onEdit={handleEdit} onDelete={handleDelete} title="Income Logs" color={isDarkMode ? COLORS.GOLD : COLORS.DEEP_BLUE} isDarkMode={isDarkMode} />}
+              {currentView === 'expenses' && <ListView data={filtered.filter(t => t.type === 'expense')} formatCurrency={formatCurrency} onEdit={handleEdit} onDelete={handleDelete} title="Expense Logs" color={COLORS.RED} isDarkMode={isDarkMode} />}
+              {currentView === 'investments' && <InvestmentsView transactions={transactions} formatCurrency={formatCurrency} total={totalPortfolio} onEdit={handleEdit} onDelete={handleDelete} isDarkMode={isDarkMode} />}
               {currentView === 'profile' && <ProfileView user={user} transactions={transactions} formatCurrency={formatCurrency} isDarkMode={isDarkMode} />}
             </div>
           </div>
         </main>
 
-        {isModalOpen && <TransactionModal onClose={() => setIsModalOpen(false)} onSave={handleAddTransaction} isDarkMode={isDarkMode} />}
+        {isModalOpen && <TransactionModal onClose={() => {setIsModalOpen(false); setEditingTransaction(null);}} onSave={handleSaveTransaction} isDarkMode={isDarkMode} initialData={editingTransaction} />}
       </div>
     </div>
   );
@@ -435,7 +464,7 @@ function DonutChart({ categories, total, isDarkMode }) {
   );
 }
 
-function ListView({ data, formatCurrency, onDelete, title, color, isDarkMode }) {
+function ListView({ data, formatCurrency, onEdit, onDelete, title, color, isDarkMode }) {
   return (
     <div className="bg-[#FDFBF7] dark:bg-[#003049] rounded-[2.5rem] shadow-xl overflow-hidden border border-black/5 dark:border-white/5 animate-in slide-in-from-bottom-5 duration-500">
       <div className="p-8 border-b border-black/5 dark:border-white/5 flex justify-between items-center bg-black/[0.01] dark:bg-white/[0.01]">
@@ -453,11 +482,14 @@ function ListView({ data, formatCurrency, onDelete, title, color, isDarkMode }) 
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-6 shrink-0">
-              <p className="font-black text-base tracking-tighter" style={{color: item.type==='income' ? (isDarkMode ? COLORS.GOLD : COLORS.DEEP_BLUE) : COLORS.RED}}>
+            <div className="flex items-center gap-2 sm:gap-6 shrink-0">
+              <p className="font-black text-sm sm:text-base tracking-tighter mr-2 sm:mr-0" style={{color: item.type==='income' ? (isDarkMode ? COLORS.GOLD : COLORS.DEEP_BLUE) : COLORS.RED}}>
                 {item.type==='income' ? '+':'-'}{formatCurrency(item.amount)}
               </p>
-              <button onClick={() => onDelete(item.id)} className="text-red-400 opacity-0 group-hover:opacity-100 transition-all hover:scale-125 p-2 bg-red-50 dark:bg-red-500/10 rounded-full"><Trash2 size={16}/></button>
+              <div className="flex items-center opacity-100 sm:opacity-0 group-hover:opacity-100 transition-all">
+                <button onClick={() => onEdit(item)} className="text-blue-500 hover:scale-110 p-2 sm:bg-blue-50 sm:dark:bg-blue-500/10 rounded-full transition-transform"><Pencil size={16}/></button>
+                <button onClick={() => onDelete(item.id)} className="text-red-400 hover:scale-110 p-2 sm:bg-red-50 sm:dark:bg-red-500/10 rounded-full transition-transform"><Trash2 size={16}/></button>
+              </div>
             </div>
           </div>
         ))}
@@ -467,7 +499,7 @@ function ListView({ data, formatCurrency, onDelete, title, color, isDarkMode }) 
   );
 }
 
-function InvestmentsView({ transactions, formatCurrency, total, onDelete, isDarkMode }) {
+function InvestmentsView({ transactions, formatCurrency, total, onEdit, onDelete, isDarkMode }) {
   const items = transactions.filter(t => t.type === 'investment');
   const grouped = items.reduce((a, c) => { a[c.category] = (a[c.category] || 0) + c.amount; return a; }, {});
   
@@ -493,7 +525,7 @@ function InvestmentsView({ transactions, formatCurrency, total, onDelete, isDark
             {Object.keys(grouped).length === 0 && <p className="m-auto opacity-30 font-black italic uppercase text-xs">No active investments</p>}
           </div>
         </div>
-        <ListView data={items} formatCurrency={formatCurrency} onDelete={onDelete} title="Recent Additions" color={COLORS.ORANGE} isDarkMode={isDarkMode} />
+        <ListView data={items} formatCurrency={formatCurrency} onEdit={onEdit} onDelete={onDelete} title="Recent Additions" color={COLORS.ORANGE} isDarkMode={isDarkMode} />
       </div>
     </div>
   );
@@ -533,12 +565,12 @@ function ProfileView({ user, transactions, formatCurrency, isDarkMode }) {
   );
 }
 
-function TransactionModal({ onClose, onSave, isDarkMode }) {
-  const [type, setType] = useState('expense');
-  const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [source, setSource] = useState('');
+function TransactionModal({ onClose, onSave, isDarkMode, initialData }) {
+  const [type, setType] = useState(initialData?.type || 'expense');
+  const [amount, setAmount] = useState(initialData?.amount || '');
+  const [category, setCategory] = useState(initialData?.category || '');
+  const [date, setDate] = useState(initialData?.date || new Date().toISOString().split('T')[0]);
+  const [source, setSource] = useState(initialData?.source || '');
   const [loading, setLoading] = useState(false);
 
   const categories = {
@@ -560,7 +592,7 @@ function TransactionModal({ onClose, onSave, isDarkMode }) {
       <div className="bg-[#FDFBF7] dark:bg-[#003049] rounded-[2.5rem] sm:rounded-[3.5rem] shadow-2xl w-full max-w-lg overflow-hidden border border-white/10 flex flex-col max-h-[90vh]">
         
         <div className="p-6 sm:p-8 border-b border-black/5 dark:border-white/5 flex justify-between items-center shrink-0">
-          <h2 className="text-2xl sm:text-3xl font-black tracking-tighter">New Record</h2>
+          <h2 className="text-2xl sm:text-3xl font-black tracking-tighter">{initialData ? "Edit Record" : "New Record"}</h2>
           <button type="button" onClick={onClose} className="p-2 hover:bg-black/5 rounded-full transition-colors">
              <X size={24} className="opacity-40"/>
           </button>
@@ -600,7 +632,7 @@ function TransactionModal({ onClose, onSave, isDarkMode }) {
           </div>
           
           <button type="submit" disabled={loading} className="w-full bg-[#003049] dark:bg-[#FCBF49] text-white dark:text-[#003049] py-5 sm:py-6 rounded-[2.5rem] font-black text-xl sm:text-2xl shadow-xl active:scale-[0.98] transition-all disabled:opacity-50 shrink-0 mt-4">
-            {loading ? <Loader2 className="animate-spin mx-auto" size={32}/> : "SAVE ENTRY"}
+            {loading ? <Loader2 className="animate-spin mx-auto" size={32}/> : (initialData ? "UPDATE ENTRY" : "SAVE ENTRY")}
           </button>
         </form>
       </div>
